@@ -1,0 +1,333 @@
+---
+title: "Spatial Temporal models applied to Earthquake data"
+author: "Luca Vignali"
+output: html_notebook
+---
+
+## Getting the Data Set
+
+In this project we utilize data from Italian National Institute of Geophisics and Volcanology, that nicely provides Earhtquake catalogs from years 1000 to 2014 (great!) that includes events with Magnitudo >= 4.0 and Intensity (Mercalli) >= 5, and it is available [here](http://emidius.mi.ingv.it/CPTI15-DBMI15/).
+
+The data set includes 4584 records, all about events in Italy, from year 1005 to end of 2014. For example in 1005 (only the year is available), it reports two earthquakes in Arezzo and Cassino with Moment Magnitude Default (MwDef)  from 7 to 8, while the last one in Cosenza at 21.43 on 28 of december 2014, MwDef = 4.55. Unsurprisingly recent data is more detailed.
+
+To start with let's load the data, that is conviniently saved as CSV.
+
+```{r}
+library(data.table)
+# load the Earthquake catalog. Skip last column to avoid messages from fread.
+# The column 41 is not used anyway.
+EQCat <- fread("CPTI15_v1.5.csv",drop = 41)
+head(EQCat)
+
+```
+
+## Data Preparation
+
+Before discussing the available fileds, let's first decide which variables are of interest for the Spatio-Temporal model. We are going to utilize the ETAS R Package that is "Modeling Earthquake Data Using ETAS Model". This model require data to include: 
+
+1. Date
+2. Time
+3. Latitude
+4. Longitude
+5. Magnitude
+
+So let's create the earthquake data for ETAS
+
+```{r}
+library(maps)
+library(ETAS)
+library(ggmap)
+
+# Select only specific Columns 
+EQData <- EQCat[,.(Year,Mo,Da,Ho,Mi,LatDef,LonDef,EpicentralArea,MwDef)]
+# Replace comma with dot for Latitude, Longitude and Magnitude and convert in numeric
+EQData$LatDef <- gsub(",", ".", EQData$LatDef)
+EQData$LatDef <- as.numeric(EQData$LatDef)
+
+EQData$LonDef <- gsub(",", ".", EQData$LonDef)
+EQData$LonDef <- as.numeric(EQData$LonDef)
+
+EQData$MwDef <- gsub(",", ".", EQData$MwDef)
+EQData$MwDef <- as.numeric(EQData$MwDef)
+
+# Remove cases where the Month is not available
+EQData <- EQData[!is.na(EQData$Mo),]
+
+# Fill cases where Day, Hour Minute are NA
+EQData$Da[is.na(EQData$Da)] <- 1
+EQData$Ho[is.na(EQData$Ho)] <- 0
+EQData$Mi[is.na(EQData$Mi)] <- 0
+
+# As some Lat and Long are empty, let's utilize the field EpicentralArea instead where lat and long are missing
+EQData[is.na(EQData$LonDef), c("LonDef", "LatDef") := geocode(EQData[is.na(EQData$LonDef), EpicentralArea])]
+# Google can't map 15 locations, so we will remove those from the data set.
+EQData <- EQData[!is.na(EQData$LonDef),]
+# Let's remove negative values of LonDef coming from some Google conversion.
+EQData <- EQData[EQData$LonDef>=0,]
+# Let's remove all cases where MwDef is not available.
+EQData <- EQData[!is.na(EQData$MwDef) ,]
+
+```
+
+In order to check if the processed data is consistent, let's plot the Italian Earthquake on a map
+
+```{r}
+library(rworldmap)
+newmap <- getMap(resolution = "low")
+plot(newmap, xlim = c(0, 22), ylim = c(39, 46), asp = 1)
+points(EQData$LonDef,EQData$LatDef, col = "red", cex =.6)
+
+library(ggmap)
+map <- get_map(location = 'Italy', zoom = 6)
+mapPoints <- ggmap(map) +
+ geom_point(aes(x = EQData$LonDef, y = EQData$LatDef, col = MwDef), data = EQData, alpha = .5) + scale_color_gradient(low = "green", high = "red")
+mapPoints
+
+```
+
+The above picture shows earthquake of more than 1000 years in Italy, where MwDef is the Magnitude.
+
+Next picture is focusing on the area where I leave (Reggio Emilia) and the area around Norcia that has been heavily hit by earthquake in 2016.
+
+```{r}
+mapRE <- get_map(location = 'Reggio Emilia', zoom = 9)
+mapPointsRE <- ggmap(mapRE) +
+ geom_point(aes(x = EQData$LonDef, y = EQData$LatDef, col = MwDef, size = MwDef), data = EQData, alpha = 0.5) + scale_color_gradient(low = "white", high = "red")
+mapPointsRE
+
+mapNO <- get_map(location = 'Norcia', zoom = 9)
+mapPointsNO <- ggmap(mapNO) +
+ geom_point(aes(x = EQData$LonDef, y = EQData$LatDef, col = MwDef, size = MwDef), data = EQData, alpha = 0.5) + scale_color_gradient(low = "white", high = "red")
+mapPointsNO
+```
+
+
+Before utilizing the ETAS model, we need additional data preparation.
+
+The first step is to create the catalog, as explained [here](ftp://cran.r-project.org/pub/R/web/packages/ETAS/ETAS.pdf)
+
+```{r}
+dt <- strptime(paste(EQData$Year,EQData$Mo,EQData$Da,EQData$Ho,EQData$Mi), "%Y %m %d %H %M", tz = "GMT")
+dates <- as.factor(as.Date(dt))
+times <- as.factor(format(dt, "%H:%M"))
+
+data <- data.frame(date = dates, time = times, long = EQData$LonDef, lat = EQData$LatDef, mag = EQData$MwDef)
+data <- data[complete.cases(data),]
+
+# As there are 14 events that are simultaneaus - not accepted by ETAS - we leave only the first one
+id <- duplicated(data[,c("date","time")])
+data <- data[!id,]
+
+ETASCAT <- catalog(data, flatmap = FALSE)
+plot(ETASCAT)
+
+```
+
+As the ETAS model requires that the catalog is complete and stationary, we conclude that the catalog here used so far can't be used. Instead we will analyze another catalog in the following.
+
+## A Complete and Stationary Data Set
+We utilize the data set analyzed in R. Console, M. Murru, G. Falcone. Probability gains of an epidemic-type aftershock sequence model in retrospective forecasting of >= 5 earthquakes in Italy. Journal of Seismology, Springer
+Verlag, 2009, 14 (1), pp.9-26. <10.1007/s10950-009-9161-3>. <hal-00535493>
+
+We utilize the Chiarabba C, Jovane L, Di Stefano R (2005) A new view of Italian seismicity using 20 years of instrumental recordings. Tectonophysics 395(3–4):251–268. http://legacy.ingv.it/CSI. doi:10.1016/j.tecto.2004.09.013.
+
+The original dataset consists of 91797 samples, starting from 1981 to 2002. Column V6 is the magnitude, when 999 is reported it means no magnitutde available. Unfortunately 52132 samples have no magnitute recorded, so that "only" 39665 events are available. Moreover, according to the paper above mentioned, the data set can be considered complete for magnitudes equal to 2.1 or larger. This yelds to 17114 samples.
+
+```{r}
+library(bit64)
+EQCat2 <- fread("1981-2002.sum.txt")
+EQCat2 <- EQCat2[V6 !=999 & V6>2.1]
+
+head(EQCat2)
+
+```
+
+
+Before analyzing the data, it is mandatory to prepare the dataset to be managed by ETAS, similarly to what has been done with the previous data set, that requires
+
+1. Date
+2. Time
+3. Latitude
+4. Longitude
+5. Magnitude
+
+```{r}
+# Convert the data
+min <- EQCat2$V1%%100
+hour <- (EQCat2$V1%/%100)%%100
+day <- ((EQCat2$V1%/%100)%/%100)%%100
+month <- (((EQCat2$V1%/%100)%/%100)%/%100)%%100
+year <- ((((EQCat2$V1%/%100)%/%100)%/%100)%/%100)%%100
+
+i2000 <- year<20
+year[i2000] <- year[i2000] + 2000
+year[!i2000] <- year[!i2000] + 1900
+
+# Convert lat and long
+latdegree <-strsplit(EQCat2$V3, split="n")
+lat <- unlist(lapply(latdegree, function(X) { as.numeric(X[2])/60 + as.numeric(X[1])}))
+londegree <-strsplit(EQCat2$V4, split="e")
+lon <- unlist(lapply(londegree, function(X) { as.numeric(X[2])/60 + as.numeric(X[1])}))
+
+# Define the data structure to be converted in ETAS cataloge
+dt <- strptime(paste(year,month,day,hour,min), "%Y %m %d %H %M", tz = "GMT")
+dates <- as.factor(as.Date(dt))
+times <- as.factor(format(dt, "%H:%M"))
+EQDat2 <- data.frame(date = dates, time=times, long= lon, lat = lat, Mag = EQCat2$V6)
+EQDat2 <- EQDat2[complete.cases(EQDat2),]
+id <- duplicated(EQDat2[,c("date","time")])
+EQDat2 <- EQDat2[!id,]
+
+ETASCAT2 <- catalog(EQDat2, flatmap = FALSE)
+plot(ETASCAT2)
+
+# Using parameters from the ETAS vignette
+# Initial estimation of the model parameter (mu, A, c, alpha, p, D, q, gamma)
+param01 <- c(0.46, 0.23, 0.022, 2.8, 1.12, 0.012, 2.4, 0.35)
+ita.fit2 <- etas(ETASCAT2, param0=param01, no.itr = 3)
+
+library(spatstat)
+library(ETAS)
+library(ggmap)
+ita.rates2 <- rates(ita.fit2,plot.it = TRUE)
+map(xlim = ita.rates2$total$xrange, ylim = ita.rates2$total$yrange)
+
+
+# The component background intensity is mu(x, y) = mu u(x, y) where
+# mu is ita.fit$param["mu"], while u(x,y) is ita.fit$bk
+muxy <- data.frame(xi = ita.fit2$object$X$data$x, yi = ita.fit2$object$X$data$y, mu = ita.fit2$param["mu"]*ita.fit2$bk)
+
+muxy <- subset(muxy, mu > 0.1)
+
+map <- get_map(location = 'Italy', zoom = 6)
+mapmu <- ggmap(map) +
+ geom_point(aes(x = xi, y = yi, col = mu), data = muxy)
+mapmu
+
+ggplot(aes(x = xi, y = yi), data = muxy) + geom_point(aes(color = muxy$mu))
+
+
+# Plot using the smoothed valus provided by the model
+# ita.rates2$total
+
+# I VALORI SONO CORRETTI PER SOVRAPPORRE ALLA CARTINA GOOGLE, bisogna
+# solo linearizzare la matrice.
+
+# xi <- rep(ita.rates2$total$xcol, length(ita.rates2$total$yrow))
+# yi <- rep(ita.rates2$total$yrow, each = length(ita.rates2$total$xcol))
+yi <- rep(ita.rates2$total$yrow, length(ita.rates2$total$xcol))
+xi <- rep(ita.rates2$total$xcol, each = length(ita.rates2$total$yrow))
+
+i <- matrix(ita.rates2$total$v,nrow = length(ita.rates2$total$yrow)* length(ita.rates2$total$xcol), byrow=TRUE)
+
+intens <- data.frame(xi, yi,lambda = i)
+intens <- subset(intens, lambda >0.5)
+
+map <- get_map(location = 'Italy', zoom = 6)
+mapmu <- ggmap(map) +
+ geom_point(aes(x = xi, y = yi, col = lambda,size = lambda), data = intens) +
+  scale_colour_gradient(low="blue", high="red")
+mapmu
+
+ggplot(aes(x = xi, y = yi), data = muxy) + geom_point(aes(color = muxy$mu))
+
+# , i = ita.rates2$total$v)
+
+
+
+
+```
+
+
+
+
+
+## Analysing and Modeling the Earthquake data
+
+This model aims at estimating the intensity function of earthquake, that is the Number of earthquakes per area per unit time [details on page 6](ftp://cran.r-project.org/pub/R/web/packages/ETAS/ETAS.pdf). The intensity is of course dependent on the Earthquake Catalog, provided that it is complete and stationary. Although it is obvious from previous picture that the catalog of the Italian National Institute of Geophisics and Volcanology is not stationary, we proceed anyway just for the sake of understanding of the model.
+
+The model fits a conditional intensity function, applying the maximum likelyhood utilizing the earthquake catalog. The ETAS model basically identifies two components for this model, the Background Seismicity and the Clustering sesimicity, as shown in the following picture, where we fit the model and calculate the rates showing the calculated model parameters.
+
+```{r}
+# Using parameters from the ETAS vignette
+# Initial estimation of the model parameter (mu, A, c, alpha, p, D, q, gamma)
+param01 <- c(0.46, 0.23, 0.022, 2.8, 1.12, 0.012, 2.4, 0.35)
+ita.fit <- etas(ETASCAT, param0=param01, no.itr = 3)
+
+# Let's try to use the result of the model and calcualte the intensity function
+# lambda(t, x, y | H_t ) = mu(x, y) + sum[t[i] < t] k(m[i]) g(t - t[i]) f(x - x[i], y - y[i]|m[i])
+
+summary(ita.fit)
+# Model Parameter
+ita.fit$param
+
+
+
+ita.rates <- rates(ita.fit)
+
+# If I want the values rather then the picture ist self do the following
+library(spatstat)
+ita.rates <- rates(ita.fit,plot.it = FALSE)
+as.matrix.im(ita.rates$total)
+
+
+
+```
+
+The fitted model ita.fit is quite a complex structure and includes the following selected information.
+Both the background rate and the clustering
+structures are important to earthquake hazard estimation,
+because the background rate tells us the potential risk of the occurrence
+of an earthquake cluster (density function of a cluster probability), and the clustering structure determines
+the size of the earthquake cluster and the magnitude of the
+biggest event in a cluster.
+
+```{r}
+library(ggplot2)
+# str(ita.fit)
+
+# Model parameters obtained from Maximum likelyhood
+ita.fit$param
+
+# The component background intensity is mu(x, y) = mu u(x, y) where
+# mu is ita.fit$param["mu"], while u(x,y) is ita.fit$bk
+muxy <- data.frame(xi = ita.fit$object$X$data$x, yi = ita.fit$object$X$data$y, mu = ita.fit$param["mu"]*ita.fit$bk)
+
+muxy <- subset(muxy, mu > 0)
+
+map <- get_map(location = 'Italy', zoom = 6)
+mapmu <- ggmap(map) +
+ geom_point(aes(x = xi, y = yi, col = mu), data = muxy)
+mapmu
+
+ggplot(aes(x = xi, y = yi), data = muxy) + geom_point(aes(color = muxy$mu))
+
+
+# Have a look at ggedit for ggplot interactive
+
+ # The Clustering sysmicity consist different components.
+
+# k(m) the expected number of events triggered from an event of magnitude m
+# k(m[i]) = A exp(alpha(m - m0)) where m0 is ita.fit$object$mag.threshold
+# A is ita.fit$param["A"], alpha is ita.fit$param["alpha"]
+km <- data.frame(m = seq(1,7,0.1), k = ita.fit$param["A"]*exp(ita.fit$param["alpha"]*(seq(1,7,0.1)-ita.fit$object$mag.threshold)))
+
+ggplot(aes(x = m, y = k), data = km) + geom_point()
+
+# The second component g(t) is the pdf of the occurence over time of the events triggered by an event.
+# So the k(m) is how many, and g(t) is the when of the events triggered by another event.
+# g(t) = ((p - 1)/c)(1 + t/c)^(-p). Where t is expressed in days (like in ita.fit$object$X$data$t)
+# p is ita.fit$param["p"], c is ita.fit$param["c"]
+
+p <- ita.fit$param["p"]
+c <- ita.fit$param["c"]
+ti <- 1:30
+
+gt <- data.frame(t = ti, g = ((p - 1)/c)*(1 + ti/c)^(-p))
+
+
+
+
+
+```
+
