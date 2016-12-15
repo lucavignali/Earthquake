@@ -1,0 +1,162 @@
+---
+title: "Analysis of Historical Italian Earthquakes"
+output: html_notebook
+author: "Luca Vignali"
+---
+
+In this document we analyze the History of Earthquakes in Italy, in terms of location and intensity.
+
+# The data Sets
+
+Several data sets are available from the "Italian National Institute of Geophisics and Volcanology" (INGV). 
+
+The _first data set_ provides Earhtquake catalogs from years 1000 to 2014 (great!) that includes events with Magnitudo >= 2.2 and Intensity (Mercalli) >= 5, and it is available [here](http://emidius.mi.ingv.it/CPTI15-DBMI15/).
+
+The data set includes 4584 records, all about events in Italy, from year 1005 to end of 2014. For example in 1005 (only the year is available), it reports two earthquakes in Arezzo and Cassino with Moment Magnitude Default (MwDef)  from 7 to 8, while the last one in Cosenza at 21.43 on 28 of december 2014, MwDef = 4.55. Unsurprisingly recent data is more detailed.
+
+The _second data set_ is the data set analyzed in R. Console, M. Murru, G. Falcone. Probability gains of an epidemic-type aftershock sequence model in retrospective forecasting of >= 5 earthquakes in Italy. Journal of Seismology, Springer
+Verlag, 2009, 14 (1), pp.9-26. <10.1007/s10950-009-9161-3>. <hal-00535493>
+
+We utilize the Chiarabba C, Jovane L, Di Stefano R (2005) A new view of Italian seismicity using 20 years of instrumental recordings. Tectonophysics 395(3–4):251–268. http://legacy.ingv.it/CSI. doi:10.1016/j.tecto.2004.09.013.
+
+The original dataset consists of 91797 samples, starting from 1981 to 2002. Column V6 is the magnitude, when 999 is reported it means no magnitutde available. Unfortunately 52132 samples have no magnitute recorded, so that "only" 39665 events are available. Moreover, according to the paper above mentioned, the data set can be considered complete for magnitudes equal to 2.1 or larger. This yelds to 17114 samples.
+
+The _third data set_ is again from INGV [here](http://cnt.rm.ingv.it/) where you have a list of Earthquakes you can browse, filter and export in nice text format. The list is udpated in Real Time from the 1st of April 2005. The snapshot utilized here is updated at 2016-12-12 17:29:59 UTC. The data includes 37103 earthquakes records from magnitude 2.0 to magnitude 6.5.
+
+As the first data set is not a good recording of a stationary process, and the second and third data set are missing years 2003, 2004 and 3 months of 2005, we are adding new data set to fill the gap.
+The _fourth data set_ is from INGV [here](ftp://ftp-server.rm.ingv.it/pro/bollet/), considering only years 2003, 2004 and 2005 until endo of March. The data consists of 4255 cases ranging from magnitude 2.1 to maximum magnitude 5.0.  
+
+
+
+# Data Preparation and Visualization
+Data is prepared to be used by the ETAS package for earthquake modelling.
+
+## Data Set 1
+Data Set 1 is loaded and prepared in the R script "Prepare_Set_1.R". The result is loaded and visualized hereafter.
+
+```{r}
+# All library here
+library(ggplot2)
+library(ggmap)
+library(ETAS)
+
+DS1 <- readRDS("DS_1")
+
+DS1_5 <- DS1[DS1$mag>=5,]
+
+map <- get_map(location = 'Italy', zoom = 6)
+mapPoints <- ggmap(map) +
+geom_point(aes(x = long, y = lat, col = mag), data = DS1, alpha = .5) + scale_color_gradient(low = "white", high = "red") + ggtitle("From 1005 to 2014 - 4360 Events")
+mapPoints
+
+mapPoints <- ggmap(map) +
+geom_point(aes(x = long, y = lat, col = mag), data = DS1_5, alpha = .5) + scale_color_gradient(low = "white", high = "red") + ggtitle("From 1005 to 2014 - 713 Events >= 5")
+mapPoints
+
+
+```
+
+
+## Data Set 2
+
+The data set 2 is prepared in Prepare_Set_2.R.
+
+```{r}
+DS2 <- readRDS("DS_2")
+
+map <- get_map(location = 'Italy', zoom = 6)
+mapPoints <- ggmap(map) +
+geom_point(aes(x = long, y = lat, col = mag), data = DS2, alpha = .5) + scale_color_gradient(low = "white", high = "red") + ggtitle("From 1981 to 2002 - 17114 Events")
+mapPoints
+
+DS2_5 <- DS2[DS2$mag>=5,]
+mapPoints <- ggmap(map) +
+geom_point(aes(x = long, y = lat, col = mag), data = DS2_5, alpha = .5) + scale_color_gradient(low = "black", high = "red") + ggtitle("From 1981 to 2002 - 36 Events >= 5 Mag")
+mapPoints 
+ 
+
+```
+
+## Data Set 3
+
+The data set 3 is prepared in Prepare_Set_3.R.
+
+```{r}
+
+DS3 <- readRDS("DS_3")
+
+map <- get_map(location = 'Italy', zoom = 6)
+mapPoints <- ggmap(map) +
+geom_point(aes(x = long, y = lat, col = mag), data = DS3, alpha = .5) + scale_color_gradient(low = "white", high = "red") + ggtitle("From 1/4/2005 to 2016 - 37103 Events")
+mapPoints
+
+DS3_5 <- DS3[DS3$mag>=5,]
+mapPoints <- ggmap(map) +
+geom_point(aes(x = long, y = lat, col = mag), data = DS3_5) + scale_color_gradient(low = "black", high = "red") + ggtitle("From 1/4/2005 to 2016 - 27 Events >= 5 Mag")
+mapPoints 
+
+
+```
+
+## Data Set 4
+
+The data set 4 is prepared in Prepare_Set_4.R.
+
+```{r}
+
+DS4 <- readRDS("DS_4")
+
+map <- get_map(location = 'Italy', zoom = 6)
+mapPoints <- ggmap(map) +
+geom_point(aes(x = long, y = lat, col = mag), data = DS4, alpha = .5) + scale_color_gradient(low = "white", high = "red") + ggtitle("From 2003 to 31/3/2005 - 4255 Events")
+mapPoints
+
+DS4_4 <- DS4[DS4$mag>=4,]
+mapPoints <- ggmap(map) +
+geom_point(aes(x = long, y = lat, col = mag), data = DS4_4) + scale_color_gradient(low = "black", high = "red") + ggtitle("From 2003 to 31/3/2005 - 6 Events >= 4 Mag")
+mapPoints 
+
+
+```
+
+## Merging Data Sets
+In order to cover the possible largest period, we merge data set 2,3,4 in order to cover 35 years earthquakes from 1981 to 2016.
+We obtain 57593 observations from magnitude 2 to magnitude 6.5.
+Actually the data from 1981 to 2002 records earthquakes with magnitude greater than 2.2, while the other from 2.1 and 2.0. So to get uniform and stationary data, we remove all observations with magnitute lower than 2.2, obtaining a set of 44562 earthquakes.
+
+```{r}
+DS_All <- rbind(DS2,DS4,DS3)
+DS_All <- DS_All[DS_All$mag>=2.2,]
+
+map <- get_map(location = 'Italy', zoom = 6)
+mapPoints <- ggmap(map) +
+geom_point(aes(x = long, y = lat, col = mag), data = DS_All, alpha = .5) + scale_color_gradient(low = "white", high = "red") + ggtitle("From 1981 to 2016 - 44562 Events")
+mapPoints
+
+DSAll_5 <- DS_All[DS_All$mag>=5,]
+mapPoints <- ggmap(map) +
+geom_point(aes(x = long, y = lat, col = mag), data = DSAll_5) + scale_color_gradient(low = "black", high = "red") + ggtitle("From 1981 to 2016 - 63 Events >= 5 Mag")
+mapPoints 
+
+```
+
+
+
+# Merged 1981 - 2016 Data Analysis through the ETAS package
+
+Now we use the ETAS poackage to analyze Data Set All. Before creating the ETAS catalog, we need to remove events
+that occurs at the same date and time.
+
+```{r}
+
+# With duplicated we remove the second occurence based on the order in the data frame.
+
+id <- duplicated(DS_All[,c("date","time")])
+DS_All <- DS_All[!id,]
+
+ETASCATAll <- catalog(DS_All, flatmap = FALSE)
+plot(ETASCATAll)
+
+```
+
+
