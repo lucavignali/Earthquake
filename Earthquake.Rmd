@@ -6,7 +6,7 @@ output: html_notebook
 
 ## Getting the Data Set
 
-In this project we utilize data from Italian National Institute of Geophisics and Volcanology, that nicely provides Earhtquake catalogs from years 1000 to 2014 (great!) that includes events with Magnitudo >= 4.0 and Intensity (Mercalli) >= 5, and it is available [here](http://emidius.mi.ingv.it/CPTI15-DBMI15/).
+In this project we utilize data from Italian National Institute of Geophisics and Volcanology, that nicely provides Earhtquake catalogs from years 1000 to 2014 (great!) that includes events with Magnitudo >= 2.2 and Intensity (Mercalli) >= 5, and it is available [here](http://emidius.mi.ingv.it/CPTI15-DBMI15/).
 
 The data set includes 4584 records, all about events in Italy, from year 1005 to end of 2014. For example in 1005 (only the year is available), it reports two earthquakes in Arezzo and Cassino with Moment Magnitude Default (MwDef)  from 7 to 8, while the last one in Cosenza at 21.43 on 28 of december 2014, MwDef = 4.55. Unsurprisingly recent data is more detailed.
 
@@ -192,6 +192,10 @@ library(ggmap)
 ita.rates2 <- rates(ita.fit2,plot.it = TRUE)
 map(xlim = ita.rates2$total$xrange, ylim = ita.rates2$total$yrange)
 
+## MU is calculated herafter, the lambda function calculates the clustering part, so that
+# the actual lambda of the formula that depends on time is mu + lambda.
+# the time unit are days.
+
 
 # The component background intensity is mu(x, y) = mu u(x, y) where
 # mu is ita.fit$param["mu"], while u(x,y) is ita.fit$bk
@@ -228,6 +232,18 @@ mapmu <- ggmap(map) +
  geom_point(aes(x = xi, y = yi, col = lambda,size = lambda), data = intens) +
   scale_colour_gradient(low="blue", high="red")
 mapmu
+
+# According to the email received, total is NOT lambda, because total
+# is integrated over time. To obtain lambda(t, x, y | H_t ) we must 
+# sum mu(x, y) with sum[t[i] < t] k(m[i]) g(t - t[i]) f(x - x[i], y - y[i]|m[i])
+# this term is actually calculated by lambda.
+
+lambda_5 <- lambda(t = 50000, x = 10.6, y = 44.6, param = ita.fit2$param,
+                   object = ETASCAT2)
+
+# Of course the t can be higher than the recorded data, it can be use to predict the 
+# intensity, however if you go far from last event, it is meaningless as the series is
+# not completed, as it is missing the last events.
 
 ggplot(aes(x = xi, y = yi), data = muxy) + geom_point(aes(color = muxy$mu))
 
@@ -330,4 +346,6 @@ gt <- data.frame(t = ti, g = ((p - 1)/c)*(1 + ti/c)^(-p))
 
 
 ```
+
+
 
