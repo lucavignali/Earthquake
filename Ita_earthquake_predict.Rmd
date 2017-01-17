@@ -1,0 +1,129 @@
+---
+title: "Italian Earthquake predicion"
+output: html_notebook
+author: "Luca Vignali"
+---
+
+# Introduction
+In this paper we utilize a model for the Italian earthquakes, and try to predict the number of earthquakes on the next day in a given area.
+
+
+# The Model
+
+# Apply the model
+
+```{r}
+library(ETAS)
+library(ggmap)
+library(data.table)
+
+```
+
+
+```{r}
+files <- list.files(pattern = "Terremoti-201[5:6]")
+temp <- lapply(files, fread)
+
+EQCat3 <- rbindlist(temp)
+
+# Extract only the useful information for the ETAS
+# data, time, long, lat, mag
+
+data <- strptime(EQCat3$Time, "%Y-%m-%dT%H:%M:%S", tz = "UTC")
+day <- as.factor(as.Date(data))
+time <- as.factor(format(data,"%H:%M"))
+
+
+EQDat3 <- data.frame(date = day, time = time, long = EQCat3$Longitude, lat = EQCat3$Latitude, 
+                     mag = EQCat3$Magnitude)
+id <- duplicated(EQDat3[,c("date","time")])
+EQDat3 <- EQDat3[!id,]
+
+
+
+```
+
+
+```{r}
+fit <- readRDS("ITAFIT2002_5")
+# ETASCATAll <- readRDS("ETASCATAll")
+
+
+
+muxy <- data.frame(xi = fit$object$X$data$df$x, yi = fit$object$X$data$df$y, mu = fit$param["mu"]*fit$bk)
+
+# This is an approximation of the expected number of earthquakes per day.
+muxyV <- function(muxy,lon_min,lon_Max,lat_min,lat_Max) {
+ muxy <-  muxy[muxy$xi > lon_min & muxy$xi < lon_Max,]
+ muxy <- muxy[muxy$yi > lat_min & muxy$yi < lat_Max,]
+ return(mean(muxy$mu)*(lon_Max - lon_min)*(lat_Max - lat_min))
+}
+
+# Let's do the same with lambda. Area 1xdegree + 1xdegree around Perugia is 12,13,42.5,43.5
+library(cubature)
+
+lambdaV <- function(lon_min,lon_Max,lat_min,lat_Max,t_min,t_max, param, hcat) {
+  
+  lambda2 <- function(x,param,hcat){
+    lambda(x[1],x[2],x[3],param,hcat)
+  }
+  hcubature(lambda2,c(t_min,lon_min,lat_min),c(t_max,lon_Max,lat_Max), param, hcat)
+      
+}
+
+# Find coordinates of a specific location
+loc <- geocode(location = "Norcia")
+lonmin <- loc$lon-0.2
+lonmax <- loc$lon+0.2
+latmin <- loc$lat-0.2
+latmax <- loc$lat+0.2
+
+# Calculate the prediction and the actual number of earthquakes
+dateloop <- seq(as.Date(date), as.Date(date) + 10, by = 1)
+prediction <- data.frame(pred = numeric(), actual = numeric())
+
+for(i in 1:length(dateloop)) {
+
+
+date <- as.POSIXct(dateloop[i])
+ETASCAT <- catalog(EQDat3, mag.threshold = 2.2, flatmap = FALSE, 
+                   study.end = date)
+ndays <- as.numeric(date - ETASCAT$study.start)
+
+# Number of earthquake with magnitude >= 2.2 due to background rate
+a <- muxyV(muxy,lonmin,lonmax,latmin,latmax)
+
+# Number of earthquake with magnitude >= 2.2 due to earthquakes already happened.
+b <- lambdaV(lonmin,lonmax,latmin,latmax,ndays,ndays+1,fit$param,ETASCAT)
+
+c <- catalog(EQDat3, mag.threshold = 2.2, flatmap = FALSE, 
+                              study.start = date, study.length = 1,
+                   lat.range = c(latmin,latmax), long.range = c(lonmin,lonmax))
+
+p <- data.frame(pred = a + b$integral, actual = sum(c$longlat.coord$flag == 1))
+               
+prediction <- rbind(prediction,p)
+}
+
+# Now we should
+
+
+
+```
+
+# Predict 2016 Earthquake around Norcia
+
+In this chapter we apply the model created with the 1981 - 2002 data. As the catalog 1981-2002 is stationary, we then apply the model to 2016 data. 
+From the model we obtain the mu(x,y) that is background contribution and lambda(x,y,t) contribution of other earthquakes.
+
+We focus on the area around Norcia, and want to predict the number of earthquakes with magnitude >2.2. As the contribution of the background is not relevant (0.02), we apply on
+
+The method can be explained as follow:
+
+1. Calculate lambda for the 1st of January 2016 based on the 2015 earthquakes catalog.
+2. Store lambda.
+3. Calculate lambda for 2nd of January, with catalog up to 1st January 2016 and so on.
+
+
+
+
